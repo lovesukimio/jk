@@ -1,0 +1,74 @@
+name: 🔄 同步上游 (Sync Upstream)
+
+on:
+  schedule:
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # 步骤 1: 检出您的分支
+      - name: 1. 检出您的分支
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0 
+
+      # 步骤 2: 备份自定义工作流
+      # 【!修复!】 必须备份到工作目录之外 (~)
+      - name: 2. 备份自定义工作流
+        run: |
+          echo "Backing up sync.yml to ~/tmp_workflow_backup"
+          mkdir -p ~/tmp_workflow_backup
+          cp ./.github/workflows/sync.yml ~/tmp_workflow_backup/
+
+      # 步骤 3: 配置 Git 用户
+      - name: 3. 配置 Git 用户
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      # 步骤 4: 添加并拉取上游
+      - name: 4. 添加并拉取上游
+        run: |
+          git remote add upstream https://github.com/louislam/uptime-kuma.git
+          git fetch upstream master
+
+      # 步骤 5: 硬重置到上游的 master 分支
+      - name: 5. 硬重置到上游 master
+        run: git reset --hard upstream/master
+
+      # 步骤 6: 恢复自定义工作流
+      # 【!修复!】 从工作目录之外 (~) 恢复
+      - name: 6. 恢复自定义工作流
+        run: |
+          echo "Restoring sync.yml from ~/tmp_workflow_backup"
+          mkdir -p ./.github/workflows
+          cp ~/tmp_workflow_backup/sync.yml ./.github/workflows/sync.yml
+          rm -rf ~/tmp_workflow_backup
+
+      # 步骤 7: 提交这个唯一的更改
+      - name: 7. 提交自定义工作流
+        run: |
+          # 检查文件是否真的被添加回来了
+          if [ -f ".github/workflows/sync.yml" ]; then
+            echo "sync.yml restored. Committing changes."
+            git add ./.github/workflows/sync.yml
+            # 只有在暂存区有文件时才提交
+            git diff-index --quiet HEAD || git commit -m "CI: 自动同步 - 重新添加自定义的 sync.yml"
+          else
+            echo "Error: sync.yml was not restored!"
+            exit 1
+          fi
+
+      # 步骤 8: 强行推送到您的仓库
+      - name: 8. 强行推送至您的仓库
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:master --force
